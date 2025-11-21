@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ADDO - Voice Avatar Assistant</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1a2e 50%, #16213e 100%);
+            color: #fff;
+            overflow: hidden;
+        }
+
+        .room-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .room-header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .header-title {
+            font-size: 24px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #4ade80;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.voice-active {
+            background: #f59e0b;
+            animation: voicePulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        @keyframes voicePulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.2); }
+        }
+
+        .room-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .video-container {
+            flex: 1;
+            background: #000;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #avatarVideo, #avatarVideoNext {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            position: absolute;
+            top: 0;
+            left: 0;
+            transition: opacity 0.5s ease-in-out;
+        }
+
+        #avatarVideo {
+            z-index: 2;
+        }
+
+        #avatarVideoNext {
+            z-index: 1;
+            opacity: 0;
+        }
+
+        .chat-panel {
+            width: 400px;
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(10px);
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-header {
+            padding: 15px 20px;
+            background: rgba(30, 41, 59, 0.8);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chat-title {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .voice-indicator {
+            font-size: 12px;
+            color: #94a3b8;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .voice-indicator.active {
+            color: #f59e0b;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .message {
+            display: flex;
+            gap: 10px;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .message.ai .message-avatar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .message.user .message-avatar {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            line-height: 1.5;
+        }
+
+        .message.ai .message-content {
+            background: rgba(59, 130, 246, 0.2);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .message.user .message-content {
+            background: rgba(139, 92, 246, 0.2);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+        }
+
+        .room-footer {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            padding: 20px 30px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.3);
+        }
+
+        .start-button, .leave-button {
+            padding: 15px 50px;
+            font-size: 18px;
+            font-weight: bold;
+            border: none;
+            border-radius: 50px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .start-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .start-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .leave-button {
+            background: linear-gradient(135deg, #f5576c 0%, #f093fb 100%);
+            box-shadow: 0 4px 15px rgba(245, 87, 108, 0.4);
+        }
+
+        .leave-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(245, 87, 108, 0.6);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .voice-status {
+            font-size: 14px;
+            color: #94a3b8;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .voice-status.listening {
+            color: #4ade80;
+        }
+
+        .voice-status.speaking {
+            color: #f59e0b;
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-messages::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="room-container">
+        <div class="room-header">
+            <div class="header-title">
+                <span class="status-indicator" id="statusIndicator"></span>
+                🎙️ ADDO Voice Assistant
+            </div>
+            <div style="font-size: 14px; color: #94a3b8;">
+                <span id="connectionStatus">Connecting...</span>
+            </div>
+        </div>
+
+        <div class="room-content">
+            <div class="video-container">
+                <video id="avatarVideo" autoplay muted playsinline></video>
+                <video id="avatarVideoNext" muted playsinline></video>
+            </div>
+
+            <div class="chat-panel">
+                <div class="chat-header">
+                    <div class="chat-title">💬 Voice Conversation</div>
+                    <div class="voice-indicator" id="voiceIndicator">
+                        🎤 Voice Ready
+                    </div>
+                </div>
+
+                <div class="chat-messages" id="chatMessages"></div>
+            </div>
+        </div>
+
+        <div class="room-footer">
+            <button class="start-button" id="startButton">
+                🎙️ Start Voice Session
+            </button>
+
+            <button class="leave-button hidden" id="leaveButton">
+                👋 End Session
+            </button>
+
+            <div class="voice-status hidden" id="voiceStatus">
+                <span>🎤</span>
+                <span id="voiceStatusText">Ready</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const VIDEO_PATHS = {
+            talk: '/static/videos/talk.mp4',
+            listening: '/static/videos/listening.mp4'
+        };
+
+        let socket;
+        let videoElement;
+        let videoElementNext;
+        let sessionStarted = false;
+        let isListening = false;
+        let isAISpeaking = false;
+        let recognition;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('🎙️ Initializing ADDO Voice Avatar...');
+            initializeSocket();
+            initializeVideo();
+            initializeControls();
+            initializeVoice();
+        });
+
+        function initializeSocket() {
+            socket = io();
+
+            socket.on('connect', () => {
+                console.log('✅ Connected to ADDO');
+                document.getElementById('connectionStatus').textContent = 'Connected';
+                document.getElementById('statusIndicator').style.background = '#4ade80';
+            });
+
+            socket.on('connected', (data) => {
+                console.log('✅ ADDO ready:', data);
+            });
+
+            socket.on('welcome_message', (data) => {
+                console.log('👋 Welcome:', data.message);
+                addMessage('ai', data.message);
+                startTalkingAnimation();
+            });
+
+            socket.on('start_talking', (data) => {
+                console.log('🎙️ ADDO speaking:', data.message);
+                startTalkingAnimation();
+            });
+
+            socket.on('speech_completed', (data) => {
+                console.log('✅ Speech completed');
+                stopTalkingAnimation();
+                setTimeout(() => startListening(), 500);
+            });
+
+            socket.on('ai_response', (data) => {
+                console.log('🤖 ADDO Response:', data.message);
+                addMessage('ai', data.message);
+            });
+        }
+
+        function initializeVideo() {
+            videoElement = document.getElementById('avatarVideo');
+            videoElementNext = document.getElementById('avatarVideoNext');
+            
+            // Start with listening video
+            videoElement.src = VIDEO_PATHS.listening;
+            videoElement.loop = true;
+            videoElement.play();
+            
+            videoElement.addEventListener('ended', handleVideoEnd);
+            videoElementNext.addEventListener('ended', handleVideoEnd);
+        }
+
+        function initializeControls() {
+            document.getElementById('startButton').addEventListener('click', startSession);
+            document.getElementById('leaveButton').addEventListener('click', leaveSession);
+        }
+
+        function initializeVoice() {
+            if ('webkitSpeechRecognition' in window) {
+                recognition = new webkitSpeechRecognition();
+                recognition.continuous = true;
+                recognition.interimResults = false;
+
+                recognition.onresult = (event) => {
+                    const transcript = event.results[event.results.length - 1][0].transcript;
+                    console.log('📝 User:', transcript);
+                    stopListening();
+                    addMessage('user', transcript);
+                    socket.emit('user_message', { message: transcript });
+                };
+
+                recognition.onerror = (event) => {
+                    if (event.error !== 'no-speech' && event.error !== 'aborted') {
+                        console.error('❌ Recognition error:', event.error);
+                    }
+                };
+
+                recognition.onend = () => {
+                    if (sessionStarted && !isAISpeaking && isListening) {
+                        setTimeout(() => {
+                            try { recognition.start(); } catch (e) {}
+                        }, 500);
+                    }
+                };
+            }
+        }
+
+        function startSession() {
+            if (sessionStarted) return;
+            sessionStarted = true;
+
+            document.getElementById('startButton').classList.add('hidden');
+            document.getElementById('leaveButton').classList.remove('hidden');
+            document.getElementById('voiceStatus').classList.remove('hidden');
+
+            // Start with listening mode
+            videoElement.src = VIDEO_PATHS.listening;
+            videoElement.loop = true;
+            videoElement.play();
+            
+            // Request session start from server
+            socket.emit('start_session');
+        }
+
+        function leaveSession() {
+            sessionStarted = false;
+            isListening = false;
+            isAISpeaking = false;
+            
+            if (recognition) recognition.stop();
+            
+            videoElement.src = VIDEO_PATHS.listening;
+            videoElement.loop = true;
+            videoElement.play();
+            
+            document.getElementById('startButton').classList.remove('hidden');
+            document.getElementById('leaveButton').classList.add('hidden');
+            document.getElementById('voiceStatus').classList.add('hidden');
+            document.getElementById('voiceIndicator').classList.remove('active');
+            document.getElementById('statusIndicator').classList.remove('voice-active');
+            document.getElementById('chatMessages').innerHTML = '';
+        }
+
+        function handleVideoEnd() {
+            // Loop the current video
+            if (videoElement.loop) {
+                videoElement.play();
+            }
+        }
+
+        function startTalkingAnimation() {
+            isAISpeaking = true;
+            isListening = false;
+            
+            document.getElementById('voiceStatusText').textContent = 'Speaking';
+            document.getElementById('voiceStatus').classList.add('speaking');
+            document.getElementById('voiceStatus').classList.remove('listening');
+            
+            // Switch to talk video
+            videoElement.src = VIDEO_PATHS.talk;
+            videoElement.loop = true;
+            videoElement.play();
+        }
+
+        function stopTalkingAnimation() {
+            isAISpeaking = false;
+            document.getElementById('voiceStatus').classList.remove('speaking');
+        }
+
+        function startListening() {
+            if (!sessionStarted) return;
+            
+            isAISpeaking = false;
+            isListening = true;
+            
+            document.getElementById('voiceStatusText').textContent = 'Listening';
+            document.getElementById('voiceStatus').classList.add('listening');
+            document.getElementById('voiceStatus').classList.remove('speaking');
+            
+            // Switch to listening video
+            videoElement.src = VIDEO_PATHS.listening;
+            videoElement.loop = true;
+            videoElement.play();
+            
+            try { recognition.start(); } catch (e) {}
+        }
+
+        function stopListening() {
+            isListening = false;
+            document.getElementById('voiceStatus').classList.remove('listening');
+            try { recognition.stop(); } catch (e) {}
+        }
+
+        function addMessage(type, text) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.textContent = type === 'ai' ? '🤖' : '👤';
+            
+            const content = document.createElement('div');
+            content.className = 'message-content';
+            content.textContent = text;
+            
+            messageDiv.appendChild(avatar);
+            messageDiv.appendChild(content);
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+    </script>
+</body>
+</html>

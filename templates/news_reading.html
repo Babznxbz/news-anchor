@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>News Reading System - Live Broadcast</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1a2e 50%, #16213e 100%);
+            color: #fff;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            padding: 12px 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            min-height: 60px;
+        }
+
+        .header-title {
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        .language-selector {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .language-selector label {
+            font-size: 14px;
+        }
+
+        .language-selector select {
+            padding: 8px 15px;
+            border-radius: 20px;
+            border: none;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .language-selector select option {
+            background: #1e3c72;
+            color: white;
+        }
+
+        .video-container {
+            height: calc(100vh - 150px);
+            position: relative;
+            background: #000;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #newsVideo {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .news-overlay {
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.9));
+            padding: 20px 40px 15px;
+        }
+
+        .news-text {
+            font-size: 20px;
+            line-height: 1.5;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            max-height: 120px;
+            overflow-y: auto;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: rgba(255,255,255,0.2);
+            margin-top: 15px;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+
+        .controls {
+            background: rgba(15, 23, 42, 0.95);
+            padding: 15px 25px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.3);
+            min-height: 70px;
+            flex-shrink: 0;
+        }
+
+        .btn {
+            padding: 12px 35px;
+            font-size: 16px;
+            font-weight: bold;
+            border: none;
+            border-radius: 50px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-start {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-start:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .btn-ask {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            box-shadow: 0 4px 15px rgba(245, 87, 108, 0.4);
+        }
+
+        .btn-ask:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(245, 87, 108, 0.6);
+        }
+
+        .btn-stop {
+            background: linear-gradient(135deg, #f5576c 0%, #c94b4b 100%);
+            box-shadow: 0 4px 15px rgba(245, 87, 108, 0.4);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .question-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            padding: 40px;
+            border-radius: 20px;
+            max-width: 600px;
+            width: 90%;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+
+        .modal-title {
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .question-input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 10px;
+            background: rgba(255,255,255,0.1);
+            color: white;
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+
+        .question-input::placeholder {
+            color: rgba(255,255,255,0.6);
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+
+        .answer-display {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+            line-height: 1.6;
+        }
+
+        .continue-prompt {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 18px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        .status-reading {
+            background: #4ade80;
+            color: #000;
+            animation: pulse 2s infinite;
+        }
+
+        .status-paused {
+            background: #f59e0b;
+            color: #000;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-title">
+                📺 News Reading System
+                <span id="statusBadge" class="status-badge hidden">●LIVE</span>
+            </div>
+            <div class="language-selector">
+                <label>🌐 Language:</label>
+                <select id="languageSelect">
+                    <option value="english">English 🇮🇳</option>
+                    <option value="hindi">हिंदी (Hindi) 🇮🇳</option>
+                    <option value="marathi">मराठी (Marathi) 🇮🇳</option>
+                    <option value="tamil">தமிழ் (Tamil) 🇮🇳</option>
+                    <option value="telugu">తెలుగు (Telugu) 🇮🇳</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="video-container">
+            <video id="newsVideo" autoplay loop muted playsinline></video>
+            <div class="news-overlay">
+                <div class="news-text" id="newsText">
+                    Welcome to News Reading System. Select your language and click "Start Reading News" to begin.
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-start" id="startBtn">
+                📰 Start Reading News
+            </button>
+            <button class="btn btn-ask hidden" id="askBtn">
+                ❓ Ask Question
+            </button>
+            <button class="btn btn-stop hidden" id="stopBtn">
+                ⏹️ Stop
+            </button>
+        </div>
+    </div>
+
+    <div class="question-modal hidden" id="questionModal">
+        <div class="modal-content">
+            <div class="modal-title">❓ Ask Your Question</div>
+            <input 
+                type="text" 
+                class="question-input" 
+                id="questionInput" 
+                placeholder="Type your question here..."
+                maxlength="200"
+            >
+            <div class="modal-buttons">
+                <button class="btn btn-start" id="submitQuestion">Submit</button>
+                <button class="btn btn-stop" id="cancelQuestion">Cancel</button>
+            </div>
+            <div class="answer-display hidden" id="answerDisplay"></div>
+            <div class="continue-prompt hidden" id="continuePrompt">
+                <p id="continueText"></p>
+                <div class="modal-buttons" style="margin-top: 15px;">
+                    <button class="btn btn-start" id="continueYes">Yes, Continue</button>
+                    <button class="btn btn-stop" id="continueNo">No, Stop</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let socket;
+        let videoElement;
+        let currentLanguage = 'english';
+        let isReading = false;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('📺 Initializing News Reading System...');
+            initializeSocket();
+            initializeVideo();
+            initializeControls();
+        });
+
+        function initializeSocket() {
+            socket = io();
+
+            socket.on('connect', () => {
+                console.log('✅ Connected to News System');
+            });
+
+            socket.on('language_set', (data) => {
+                console.log('🌐 Language set:', data.language);
+                currentLanguage = data.language;
+                
+                if (data.status === 'ready') {
+                    document.getElementById('newsText').textContent = 'Document ready in ' + data.language + '. Click "Start Reading News" to begin.';
+                } else if (data.status === 'error') {
+                    document.getElementById('newsText').textContent = 'Error loading document. Please try again.';
+                }
+            });
+
+            socket.on('news_intro', (data) => {
+                console.log('📰 News intro:', data.message);
+                document.getElementById('newsText').textContent = data.message;
+                // Don't switch video here, wait for speech_started event
+            });
+
+            socket.on('news_sentence', (data) => {
+                console.log('📝 Reading:', data.sentence);
+                document.getElementById('newsText').textContent = data.sentence;
+                document.getElementById('progressFill').style.width = data.progress + '%';
+                // Don't switch video here, wait for speech_started event
+            });
+
+            socket.on('speech_started', () => {
+                console.log('🎙️ Speech started - switching to talk video');
+                switchToTalkingVideo();
+            });
+
+            socket.on('speech_ended', () => {
+                console.log('🔇 Speech ended - switching to LISTENING video immediately');
+                switchToListeningVideo();
+            });
+
+            socket.on('news_completed', () => {
+                console.log('✅ News reading completed');
+                document.getElementById('newsText').textContent = 'News reading completed. Thank you for watching!';
+                resetUI();
+            });
+
+            socket.on('reading_started', () => {
+                isReading = true;
+                document.getElementById('statusBadge').classList.remove('hidden');
+                document.getElementById('statusBadge').classList.add('status-reading');
+                document.getElementById('askBtn').classList.remove('hidden');
+                document.getElementById('startBtn').classList.add('hidden');
+                document.getElementById('stopBtn').classList.remove('hidden');
+            });
+
+            socket.on('question_mode_enabled', () => {
+                console.log('⏸️ Question mode enabled');
+                document.getElementById('statusBadge').classList.remove('status-reading');
+                document.getElementById('statusBadge').classList.add('status-paused');
+                document.getElementById('statusBadge').textContent = '●PAUSED';
+                switchToListeningVideo(); // Switch to listening when paused
+            });
+
+            socket.on('question_answer', (data) => {
+                console.log('💬 Answer:', data.answer);
+                const answerDiv = document.getElementById('answerDisplay');
+                answerDiv.innerHTML = `<strong>Q:</strong> ${data.question}<br><br><strong>A:</strong> ${data.answer}`;
+                answerDiv.classList.remove('hidden');
+                // Don't switch video here, wait for speech_started event
+            });
+
+            socket.on('ask_continue', (data) => {
+                console.log('❓ Continue prompt:', data.message);
+                document.getElementById('continueText').textContent = data.message;
+                document.getElementById('continuePrompt').classList.remove('hidden');
+            });
+
+            socket.on('reading_resumed', () => {
+                console.log('▶️ Reading resumed');
+                document.getElementById('questionModal').classList.add('hidden');
+                document.getElementById('statusBadge').classList.remove('status-paused');
+                document.getElementById('statusBadge').classList.add('status-reading');
+                document.getElementById('statusBadge').textContent = '●LIVE';
+                resetModal();
+            });
+
+            socket.on('reading_stopped', () => {
+                console.log('🛑 Reading stopped');
+                document.getElementById('newsText').textContent = 'News reading stopped.';
+                switchToListeningVideo(); // Switch to listening video when stopped
+                resetUI();
+            });
+        }
+
+        function initializeVideo() {
+            videoElement = document.getElementById('newsVideo');
+            // Start with listening video
+            videoElement.src = '/static/videos/listening.mp4?v=' + Date.now();
+            videoElement.play().catch(e => console.error('Video play error:', e));
+        }
+
+        function switchToTalkingVideo() {
+            console.log('🎬 Switching to talking video');
+            videoElement.src = '/static/videos/talk (2)-vmake.mp4?v=' + Date.now();
+            videoElement.loop = true;
+            videoElement.play().catch(e => console.error('Talk video error:', e));
+        }
+
+        function switchToListeningVideo() {
+            console.log('🎬 Switching to listening video');
+            videoElement.src = '/static/videos/listening.mp4?v=' + Date.now();
+            videoElement.loop = true;
+            videoElement.play().catch(e => console.error('Listen video error:', e));
+        }
+
+        function initializeControls() {
+            document.getElementById('languageSelect').addEventListener('change', (e) => {
+                currentLanguage = e.target.value;
+                document.getElementById('newsText').textContent = '🌐 Loading document in ' + currentLanguage + '...';
+                socket.emit('set_language', { language: currentLanguage });
+            });
+
+            document.getElementById('startBtn').addEventListener('click', () => {
+                socket.emit('start_reading');
+            });
+
+            document.getElementById('askBtn').addEventListener('click', () => {
+                socket.emit('ask_question');
+                document.getElementById('questionModal').classList.remove('hidden');
+            });
+
+            document.getElementById('stopBtn').addEventListener('click', () => {
+                socket.emit('stop_reading');
+            });
+
+            document.getElementById('submitQuestion').addEventListener('click', () => {
+                const question = document.getElementById('questionInput').value.trim();
+                if (question) {
+                    socket.emit('user_question', { question: question });
+                    document.getElementById('questionInput').value = '';
+                }
+            });
+
+            document.getElementById('cancelQuestion').addEventListener('click', () => {
+                socket.emit('continue_reading', { response: 'yes' });
+                document.getElementById('questionModal').classList.add('hidden');
+                resetModal();
+            });
+
+            document.getElementById('continueYes').addEventListener('click', () => {
+                console.log('✅ User clicked continue - resuming news');
+                socket.emit('continue_reading', { response: 'yes' });
+                // Hide continue prompt immediately
+                document.getElementById('continuePrompt').classList.add('hidden');
+                // Close modal if open
+                document.getElementById('questionModal').classList.add('hidden');
+                resetModal();
+            });
+
+            document.getElementById('continueNo').addEventListener('click', () => {
+                socket.emit('continue_reading', { response: 'no' });
+                document.getElementById('questionModal').classList.add('hidden');
+                resetModal();
+            });
+
+            document.getElementById('questionInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    document.getElementById('submitQuestion').click();
+                }
+            });
+        }
+
+        function resetUI() {
+            isReading = false;
+            document.getElementById('statusBadge').classList.add('hidden');
+            document.getElementById('askBtn').classList.add('hidden');
+            document.getElementById('startBtn').classList.remove('hidden');
+            document.getElementById('stopBtn').classList.add('hidden');
+            document.getElementById('progressFill').style.width = '0%';
+        }
+
+        function resetModal() {
+            document.getElementById('questionInput').value = '';
+            document.getElementById('answerDisplay').classList.add('hidden');
+            document.getElementById('answerDisplay').innerHTML = '';
+            document.getElementById('continuePrompt').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>

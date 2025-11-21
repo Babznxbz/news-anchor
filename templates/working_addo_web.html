@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>News Anchor AI - Live Broadcasting</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1a2e 50%, #16213e 100%);
+            color: #fff;
+            overflow: hidden;
+        }
+
+        .room-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .room-header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .header-title {
+            font-size: 24px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #4ade80;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.speaking {
+            background: #f59e0b;
+            animation: voicePulse 0.8s infinite;
+        }
+
+        .status-indicator.listening {
+            background: #4ade80;
+            animation: listenPulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        @keyframes voicePulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.2); }
+        }
+
+        @keyframes listenPulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.15); }
+        }
+
+        .room-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .video-container {
+            flex: 1;
+            background: #000;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #avatarVideo, #avatarVideoNext {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            position: absolute;
+            top: 0;
+            left: 0;
+            transition: opacity 0.5s ease-in-out;
+        }
+
+        #avatarVideo {
+            z-index: 2;
+            opacity: 1;
+        }
+
+        #avatarVideoNext {
+            z-index: 1;
+            opacity: 0;
+        }
+
+        .chat-panel {
+            width: 400px;
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(10px);
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-header {
+            padding: 15px 20px;
+            background: rgba(30, 41, 59, 0.8);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .chat-title {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .message {
+            display: flex;
+            gap: 10px;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .message.ai .message-avatar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .message.user .message-avatar {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            line-height: 1.5;
+        }
+
+        .message.ai .message-content {
+            background: rgba(59, 130, 246, 0.2);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .message.user .message-content {
+            background: rgba(139, 92, 246, 0.2);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+        }
+
+        .room-footer {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            padding: 20px 30px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.3);
+        }
+
+        .start-button, .leave-button {
+            padding: 15px 50px;
+            font-size: 18px;
+            font-weight: bold;
+            border: none;
+            border-radius: 50px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .start-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .start-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .leave-button {
+            background: linear-gradient(135deg, #f5576c 0%, #f093fb 100%);
+            box-shadow: 0 4px 15px rgba(245, 87, 108, 0.4);
+        }
+
+        .leave-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(245, 87, 108, 0.6);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .voice-status {
+            font-size: 14px;
+            color: #94a3b8;
+        }
+
+        .voice-status.listening {
+            color: #4ade80;
+        }
+
+        .voice-status.speaking {
+            color: #f59e0b;
+        }
+
+        .chat-input {
+            padding: 15px 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input input {
+            flex: 1;
+            padding: 10px 15px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 25px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            outline: none;
+        }
+
+        .chat-input input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .chat-input button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 25px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            cursor: pointer;
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-messages::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="room-container">
+        <div class="room-header">
+            <div class="header-title">
+                <span class="status-indicator" id="statusIndicator"></span>
+                📺 News Anchor AI - Live
+            </div>
+            <div style="font-size: 14px; color: #94a3b8;">
+                <span id="connectionStatus">Connecting...</span>
+            </div>
+        </div>
+
+        <div class="room-content">
+            <div class="video-container">
+                <video id="avatarVideo" autoplay muted playsinline loop></video>
+                <video id="avatarVideoNext" muted playsinline loop></video>
+            </div>
+
+            <div class="chat-panel">
+                <div class="chat-header">
+                    <div class="chat-title">📺 News Desk Q&A</div>
+                </div>
+
+                <div class="chat-messages" id="chatMessages"></div>
+
+                <div class="chat-input">
+                    <input type="text" id="messageInput" placeholder="Type your message..." maxlength="200">
+                    <button id="sendButton">Send</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="room-footer">
+            <button class="start-button" id="startButton">
+                📺 Start News Broadcast
+            </button>
+
+            <button class="leave-button hidden" id="leaveButton">
+                👋 End Broadcast
+            </button>
+
+            <div class="voice-status hidden" id="voiceStatus">Ready</div>
+        </div>
+    </div>
+
+    <script>
+        // Cache busting - force reload videos
+        const cacheBuster = Date.now();
+        const VIDEO_PATHS = {
+            talk: `/static/videos/talk%20(2)-vmake.mp4?v=${cacheBuster}`,
+            listening: `/static/videos/listening.mp4?v=${cacheBuster}`
+        };
+
+        let socket;
+        let videoElement;
+        let videoElementNext;
+        let currentVideo = null;
+        let sessionStarted = false;
+        let isListening = false;
+        let isAISpeaking = false;
+        let recognition;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('📺 Initializing News Anchor AI...');
+            initializeSocket();
+            initializeVideo();
+            initializeControls();
+            initializeVoice();
+        });
+
+        function initializeSocket() {
+            socket = io();
+
+            socket.on('connect', () => {
+                console.log('✅ Connected to News Anchor AI');
+                document.getElementById('connectionStatus').textContent = 'Connected';
+            });
+
+            socket.on('welcome_message', (data) => {
+                console.log('👋 Welcome:', data.message);
+                addMessage('ai', data.message);
+                // Avatar animation will be triggered by start_talking event
+            });
+
+            socket.on('ai_response', (data) => {
+                console.log('🤖 Response:', data.message);
+                addMessage('ai', data.message);
+                // Avatar animation will be triggered by start_talking event
+            });
+
+            socket.on('start_talking', (data) => {
+                console.log('🎬 News anchor starts broadcasting:', data.message);
+                console.log('🎬 Video loops needed:', data.video_loops);
+                startTalkingAnimation(data.video_loops || 1);
+                document.getElementById('statusIndicator').classList.add('speaking');
+            });
+
+            socket.on('speech_completed', (data) => {
+                console.log('✅ Broadcast completed');
+                stopTalkingAnimation();
+                document.getElementById('statusIndicator').classList.remove('speaking');
+                
+                // INSTANT switch to listening mode - no delay
+                startListening();
+            });
+        }
+
+        function initializeVideo() {
+            videoElement = document.getElementById('avatarVideo');
+            videoElementNext = document.getElementById('avatarVideoNext');
+            currentVideo = videoElement;
+            
+            // Ensure proper initial states
+            videoElement.style.opacity = '1';
+            videoElement.style.zIndex = '2';
+            videoElementNext.style.opacity = '0';
+            videoElementNext.style.zIndex = '1';
+            
+            // Start with listening video
+            videoElement.src = VIDEO_PATHS.listening;
+            videoElement.loop = true;
+            
+            // Preload talk video in background
+            videoElementNext.src = VIDEO_PATHS.talk;
+            videoElementNext.loop = true;
+            videoElementNext.load();
+            
+            // Play with error handling
+            videoElement.play().then(() => {
+                console.log('✅ Video initialized and playing');
+            }).catch(error => {
+                console.error('❌ Video play error:', error);
+                // Retry after user interaction
+                document.body.addEventListener('click', () => {
+                    videoElement.play().catch(e => console.error('Retry failed:', e));
+                }, { once: true });
+            });
+        }
+
+        function smoothVideoTransition(newVideoSrc) {
+            console.log('🎬 Smooth transition to:', newVideoSrc);
+            
+            // Determine which video is currently visible
+            const visibleVideo = (currentVideo === videoElement) ? videoElement : videoElementNext;
+            const hiddenVideo = (currentVideo === videoElement) ? videoElementNext : videoElement;
+            
+            // Setup the hidden video
+            hiddenVideo.src = newVideoSrc;
+            hiddenVideo.loop = true;
+            hiddenVideo.currentTime = 0;
+            hiddenVideo.load();
+            
+            // When ready, crossfade
+            hiddenVideo.oncanplay = () => {
+                hiddenVideo.play().then(() => {
+                    // Crossfade: fade out current, fade in new
+                    visibleVideo.style.opacity = '0';
+                    hiddenVideo.style.opacity = '1';
+                    
+                    // Swap z-index after transition
+                    setTimeout(() => {
+                        if (currentVideo === videoElement) {
+                            videoElement.style.zIndex = '1';
+                            videoElementNext.style.zIndex = '2';
+                            currentVideo = videoElementNext;
+                        } else {
+                            videoElement.style.zIndex = '2';
+                            videoElementNext.style.zIndex = '1';
+                            currentVideo = videoElement;
+                        }
+                    }, 500);
+                }).catch(e => console.error('Play error:', e));
+            };
+        }
+
+        function initializeControls() {
+            document.getElementById('startButton').addEventListener('click', startSession);
+            document.getElementById('leaveButton').addEventListener('click', leaveSession);
+            document.getElementById('sendButton').addEventListener('click', sendMessage);
+            document.getElementById('messageInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') sendMessage();
+            });
+        }
+
+        function initializeVoice() {
+            if ('webkitSpeechRecognition' in window) {
+                recognition = new webkitSpeechRecognition();
+                recognition.continuous = true;  // Keep listening continuously
+                recognition.interimResults = true;  // Show interim results
+                recognition.lang = 'en-US';  // Set language
+                recognition.maxAlternatives = 1;
+
+                recognition.onresult = (event) => {
+                    const last = event.results.length - 1;
+                    const transcript = event.results[last][0].transcript;
+                    
+                    // Only process final results
+                    if (event.results[last].isFinal) {
+                        console.log('📝 User said:', transcript);
+                        stopListening();
+                        addMessage('user', transcript);
+                        socket.emit('user_message', { message: transcript });
+                    } else {
+                        console.log('🎤 Hearing:', transcript);
+                    }
+                };
+
+                recognition.onerror = (event) => {
+                    console.log('❌ Recognition error:', event.error);
+                    if (event.error === 'no-speech') {
+                        console.log('No speech detected, continuing...');
+                    }
+                    if (sessionStarted && !isAISpeaking && event.error !== 'aborted') {
+                        setTimeout(() => startListening(), 500);
+                    }
+                };
+
+                recognition.onend = () => {
+                    console.log('🎤 Recognition ended');
+                    if (sessionStarted && !isAISpeaking && isListening) {
+                        setTimeout(() => {
+                            try { 
+                                recognition.start();
+                                console.log('🎤 Restarting recognition...');
+                            } catch (e) {
+                                console.log('Could not restart:', e);
+                            }
+                        }, 300);
+                    }
+                };
+
+                recognition.onstart = () => {
+                    console.log('🎤 Recognition started - listening...');
+                };
+            } else {
+                console.error('❌ Speech recognition not supported');
+            }
+        }
+
+        function startSession() {
+            if (sessionStarted) return;
+            sessionStarted = true;
+
+            console.log('🎬 Starting session...');
+
+            document.getElementById('startButton').classList.add('hidden');
+            document.getElementById('leaveButton').classList.remove('hidden');
+            document.getElementById('voiceStatus').classList.remove('hidden');
+
+            // Start with listening video (already playing from init)
+            console.log('🎬 Session started with listening video');
+            
+            // Start voice agent
+            socket.emit('start_session');
+        }
+
+        function leaveSession() {
+            console.log('🛑 Ending session - canceling all operations');
+            
+            sessionStarted = false;
+            isListening = false;
+            isAISpeaking = false;
+            
+            // Stop speech recognition
+            if (recognition) {
+                try { recognition.stop(); } catch (e) {}
+            }
+            
+            // Notify server to cancel any ongoing speech
+            socket.emit('cancel_session');
+            
+            // Reset video states properly
+            videoElement.style.opacity = '1';
+            videoElement.style.zIndex = '2';
+            videoElementNext.style.opacity = '0';
+            videoElementNext.style.zIndex = '1';
+            
+            // Completely reset both videos
+            videoElement.pause();
+            videoElementNext.pause();
+            videoElement.currentTime = 0;
+            videoElementNext.currentTime = 0;
+            
+            // Clear sources to force reload
+            videoElement.removeAttribute('src');
+            videoElementNext.removeAttribute('src');
+            videoElement.load();
+            videoElementNext.load();
+            
+            // Set fresh listening video
+            setTimeout(() => {
+                videoElement.src = VIDEO_PATHS.listening;
+                videoElement.loop = true;
+                videoElement.currentTime = 0;
+                videoElement.play().catch(e => console.error('Reset video error:', e));
+                
+                // Preload talk video fresh
+                videoElementNext.src = VIDEO_PATHS.talk;
+                videoElementNext.loop = true;
+                videoElementNext.load();
+            }, 100);
+            
+            currentVideo = videoElement;
+            
+            document.getElementById('startButton').classList.remove('hidden');
+            document.getElementById('leaveButton').classList.add('hidden');
+            document.getElementById('voiceStatus').classList.add('hidden');
+            document.getElementById('statusIndicator').classList.remove('speaking');
+            document.getElementById('statusIndicator').classList.remove('listening');
+            document.getElementById('chatMessages').innerHTML = '';
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+            
+            if (message && sessionStarted) {
+                addMessage('user', message);
+                socket.emit('user_message', { message: message });
+                input.value = '';
+            }
+        }
+
+
+
+        function startTalkingAnimation(videoLoops = 1) {
+            isAISpeaking = true;
+            isListening = false;
+            
+            document.getElementById('voiceStatus').textContent = `Broadcasting (${videoLoops} loops)`;
+            document.getElementById('voiceStatus').classList.add('speaking');
+            document.getElementById('voiceStatus').classList.remove('listening');
+            
+            console.log(`🎬 Starting broadcast animation with ${videoLoops} video loops`);
+            
+            // Smooth transition to talk video
+            smoothVideoTransition(VIDEO_PATHS.talk);
+        }
+
+        function stopTalkingAnimation() {
+            isAISpeaking = false;
+            document.getElementById('voiceStatus').classList.remove('speaking');
+        }
+
+        function startListening() {
+            if (!sessionStarted) return;
+            
+            isAISpeaking = false;
+            isListening = true;
+            
+            document.getElementById('voiceStatus').textContent = 'Listening';
+            document.getElementById('voiceStatus').classList.add('listening');
+            document.getElementById('voiceStatus').classList.remove('speaking');
+            document.getElementById('statusIndicator').classList.add('listening');
+            document.getElementById('statusIndicator').classList.remove('speaking');
+            
+            // Smooth transition to listening video
+            smoothVideoTransition(VIDEO_PATHS.listening);
+            
+            if (recognition) {
+                try {
+                    recognition.start();
+                } catch (e) {
+                    console.log('Recognition start error:', e);
+                }
+            }
+        }
+
+        function stopListening() {
+            isListening = false;
+            document.getElementById('voiceStatus').classList.remove('listening');
+            document.getElementById('statusIndicator').classList.remove('listening');
+            
+            if (recognition) {
+                try { recognition.stop(); } catch (e) {}
+            }
+        }
+
+        function addMessage(type, text) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.textContent = type === 'ai' ? '🤖' : '👤';
+            
+            const content = document.createElement('div');
+            content.className = 'message-content';
+            content.textContent = text;
+            
+            messageDiv.appendChild(avatar);
+            messageDiv.appendChild(content);
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+    </script>
+</body>
+</html>
